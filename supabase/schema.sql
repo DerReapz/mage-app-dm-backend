@@ -73,6 +73,30 @@ create policy profiles_self_write on public.profiles
 create policy profiles_self_insert on public.profiles
   for insert to authenticated with check (id = auth.uid());
 
+-- Membership helpers (SECURITY DEFINER) break the cross-table RLS cycle
+-- between session_members and game_sessions. Policies below call these
+-- instead of doing the EXISTS subquery inline.
+create or replace function public.is_session_dm(p_session uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from game_sessions
+    where id = p_session and dm_id = auth.uid()
+  );
+$$;
+
+create or replace function public.is_session_member(p_session uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from session_members
+    where session_id = p_session and player_id = auth.uid()
+  );
+$$;
+
+revoke all on function public.is_session_dm(uuid)     from public;
+revoke all on function public.is_session_member(uuid) from public;
+grant  execute on function public.is_session_dm(uuid)     to authenticated;
+grant  execute on function public.is_session_member(uuid) to authenticated;
+
 -- Game sessions:
 --   DM can do anything with their own sessions.
 --   Members can read sessions they belong to.
@@ -82,34 +106,20 @@ create policy sessions_dm_all on public.game_sessions
   with check (dm_id = auth.uid());
 
 create policy sessions_member_read on public.game_sessions
-  for select to authenticated using (
-    exists (
-      select 1 from public.session_members m
-      where m.session_id = game_sessions.id and m.player_id = auth.uid()
-    )
-  );
+  for select to authenticated using (public.is_session_member(id));
 
 -- Session members:
 --   DM of the session can manage membership.
---   Members can see who else is in their session.
+--   A player can read only their own row (the DM still sees every row
+--    in their session via members_dm_all).
 --   A player can insert themselves (join) and delete themselves (leave).
 create policy members_dm_all on public.session_members
   for all to authenticated
-  using (
-    exists (select 1 from public.game_sessions s
-            where s.id = session_members.session_id and s.dm_id = auth.uid())
-  )
-  with check (
-    exists (select 1 from public.game_sessions s
-            where s.id = session_members.session_id and s.dm_id = auth.uid())
-  );
+  using      (public.is_session_dm(session_id))
+  with check (public.is_session_dm(session_id));
 
-create policy members_read on public.session_members
-  for select to authenticated using (
-    player_id = auth.uid()
-    or exists (select 1 from public.session_members m
-               where m.session_id = session_members.session_id and m.player_id = auth.uid())
-  );
+create policy members_self_read on public.session_members
+  for select to authenticated using (player_id = auth.uid());
 
 create policy members_self_join on public.session_members
   for insert to authenticated with check (player_id = auth.uid());
@@ -126,10 +136,7 @@ create policy characters_player_rw on public.characters
   with check (player_id = auth.uid());
 
 create policy characters_dm_read on public.characters
-  for select to authenticated using (
-    exists (select 1 from public.game_sessions s
-            where s.id = characters.session_id and s.dm_id = auth.uid())
-  );
+  for select to authenticated using (public.is_session_dm(session_id));
 
 -- ============================================================
 -- Helper: generate a 6-char invite code on session insert if absent.
