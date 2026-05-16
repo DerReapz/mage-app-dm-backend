@@ -14,7 +14,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - uses: actions/setup-java@v4
         with:
@@ -22,7 +21,7 @@ jobs:
           java-version: '17'
 
       - name: Install deps
-        run: npm ci
+        run: npm install
 
       - name: Build web bundle
         env:
@@ -38,6 +37,12 @@ jobs:
 
       - name: Capacitor sync
         run: npx cap sync android
+
+      - name: Patch Java target to 17
+        run: |
+          if [ -f android/app/build.gradle ]; then
+            sed -i 's/JavaVersion\.VERSION_21/JavaVersion.VERSION_17/g' android/app/build.gradle || true
+          fi
 
       - name: Build debug APK
         working-directory: android
