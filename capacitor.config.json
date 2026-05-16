@@ -1,0 +1,8 @@
+{
+  "appId": "com.magesheet.dmdashboard",
+  "appName": "Mage DM Dashboard",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

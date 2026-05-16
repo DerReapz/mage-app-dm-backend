@@ -1,0 +1,188 @@
+{
+  "name": "Adelita Vasquez",
+  "sheet": {
+    "identity": {
+      "name": "Adelita Vasquez",
+      "concept": "Reluctant Hermetic prodigy",
+      "chronicle": "The Ashen Reverie",
+      "ambition": "Decode the Codex of Veiled Stars",
+      "desire": "Find her missing mentor",
+      "avatar": "A burning falcon perched on a brass key",
+      "paradigm": "Reality is a tapestry of equations the awakened can rewrite.",
+      "tradition": "Order of Hermes",
+      "tutor": "Brother Caius (missing)"
+    },
+    "physical": { "Strength": 2, "Dexterity": 3, "Stamina": 3 },
+    "social":   { "Charisma": 3, "Manipulation": 2, "Composure": 3 },
+    "mental":   { "Intelligence": 4, "Wits": 3, "Resolve": 3 },
+    "physSkills": [
+      { "label": "Athletics",   "spec": "Climbing", "value": 2 },
+      { "label": "Brawl",       "spec": "",          "value": 1 },
+      { "label": "Craft",       "spec": "Calligraphy","value": 3 },
+      { "label": "Drive",       "spec": "",          "value": 1 },
+      { "label": "Firearms",    "spec": "",          "value": 0 },
+      { "label": "Larceny",     "spec": "Lockpicking","value": 2 },
+      { "label": "Melee",       "spec": "",          "value": 1 },
+      { "label": "Stealth",     "spec": "",          "value": 2 },
+      { "label": "Survival",    "spec": "",          "value": 1 }
+    ],
+    "socSkills": [
+      { "label": "Animal Ken",  "spec": "", "value": 0 },
+      { "label": "Etiquette",   "spec": "Hermetic protocol", "value": 3 },
+      { "label": "Insight",     "spec": "", "value": 2 },
+      { "label": "Intimidation","spec": "", "value": 1 },
+      { "label": "Leadership",  "spec": "", "value": 1 },
+      { "label": "Performance", "spec": "", "value": 0 },
+      { "label": "Persuasion",  "spec": "", "value": 2 },
+      { "label": "Streetwise",  "spec": "", "value": 1 },
+      { "label": "Subterfuge",  "spec": "", "value": 2 }
+    ],
+    "mentSkills": [
+      { "label": "Academics",   "spec": "Linguistics", "value": 4 },
+      { "label": "Awareness",   "spec": "",             "value": 2 },
+      { "label": "Finance",     "spec": "",             "value": 1 },
+      { "label": "Investigation","spec": "",           "value": 3 },
+      { "label": "Medicine",    "spec": "",             "value": 1 },
+      { "label": "Occult",      "spec": "Hermetic lore","value": 4 },
+      { "label": "Politics",    "spec": "",             "value": 1 },
+      { "label": "Science",     "spec": "Mathematics",  "value": 3 },
+      { "label": "Technology",  "spec": "",             "value": 2 }
+    ],
+    "chronicleTenets": [
+      "Knowledge has a price; pay it openly.",
+      "Never strike at the Sleeper unseen.",
+      "The Consilium's word binds, even when it bleeds.",
+      "",
+      ""
+    ],
+    "touchstones": [
+      "Her grandmother's silver rosary",
+      "A photograph of Brother Caius",
+      "The roof of the old observatory",
+      "",
+      ""
+    ],
+    "tradTenets": [
+      "Magick is a science of correspondences.",
+      "Pattern reveals truth; chaos conceals it.",
+      "Authority is earned through demonstration.",
+      "",
+      ""
+    ],
+    "spheres": [
+      { "name": "Forces",         "value": 3, "descs": ["Kindle flame", "Quench sound", "Refract light", "", ""] },
+      { "name": "Correspondence", "value": 2, "descs": ["Scry familiar place", "Sense distance", "", "", ""] },
+      { "name": "Prime",          "value": 2, "descs": ["Perceive Resonance", "Fuel a rote with Quintessence", "", "", ""] },
+      { "name": "Mind",           "value": 1, "descs": ["Read surface emotion", "", "", "", ""] },
+      { "name": "Time",           "value": 1, "descs": ["Sense the immediate past", "", "", "", ""] },
+      { "name": "Matter",         "value": 0, "descs": ["", "", "", "", ""] }
+    ],
+    "health":    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "willpower": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "arete":     [true, true, true, false, false, false, false, false, false, false],
+    "quint":     [true, true, true, true, false, false, false, false, false, false],
+    "paradox":   [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "powerBonus": "+1 Forces vs. ambient flame",
+    "areteReroll": "1/scene on Hermetic rotes",
+    "backgrounds": [
+      { "name": "Library (Hermetic)", "value": 3 },
+      { "name": "Mentor (missing)",   "value": 2 },
+      { "name": "Resources",          "value": 2 },
+      { "name": "Sanctum",            "value": 2 },
+      { "name": "Avatar",             "value": 3 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 }
+    ],
+    "merits": [
+      { "name": "Eidetic Memory", "value": 2 },
+      { "name": "Iron Will",       "value": 2 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 }
+    ],
+    "flaws": [
+      { "name": "Driving Goal (find Caius)", "value": 3 },
+      { "name": "Nightmares",                 "value": 1 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 }
+    ],
+    "noHaven": false,
+    "havenRating": 2,
+    "havenName": "The Brass Loft",
+    "havenRows": [
+      { "name": "Wards", "value": 2 },
+      { "name": "Library Annex", "value": 1 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 }
+    ],
+    "havenMerits": [
+      { "name": "Hidden Entrance", "value": 1 },
+      { "name": "Node (minor)",    "value": 2 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 }
+    ],
+    "havenFlaws": [
+      { "name": "Resonance leak (cinder scent)", "value": 1 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 },
+      { "name": "", "value": 0 }
+    ],
+    "havenLocation": "Above a defunct print shop, Old Quarter",
+    "havenDescription": "A clutter of brass orreries, a wood-burning stove, and a battered escritoire stacked with ledgers.",
+    "gearCarried": [
+      "Wand-style focus (engraved brass)",
+      "Notebook of half-finished rotes",
+      "Folding penknife",
+      "Pocket watch (heirloom)",
+      "Small mirror",
+      "Chalk and ribbon",
+      "",
+      ""
+    ],
+    "equipmentOwned": [
+      "Hermetic athame",
+      "Portable scrying basin",
+      "Bound grimoire (locked)",
+      "Stargazing kit",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "vehicles": ["Bicycle", "", "", "", "", ""],
+    "xpTotal": "47",
+    "xpSpent": "39",
+    "weapons": [
+      { "name": "Athame",    "dmg": "+1L" },
+      { "name": "Penknife",  "dmg": "+0L" },
+      { "name": "", "dmg": "" },
+      { "name": "", "dmg": "" },
+      { "name": "", "dmg": "" },
+      { "name": "", "dmg": "" }
+    ],
+    "trueAge": "29",
+    "apparentAge": "26",
+    "dob": "1996-08-14",
+    "awakening": "Witnessed a meteor that did not fall.",
+    "appearance": "Wiry, ink-stained fingers, hair pinned with a brass key.",
+    "distFeatures": "A faint scar across the left brow shaped like a sigil.",
+    "history": "Apprenticed to Brother Caius for seven years before his disappearance during the Equinox Working.",
+    "possessions": "Family rosary, late mother's locket, a sealed letter she has never opened.",
+    "notes": "Believes Caius is alive somewhere in the Penumbra."
+  }
+}
