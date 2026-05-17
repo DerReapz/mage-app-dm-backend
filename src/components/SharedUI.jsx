@@ -78,3 +78,36 @@ export function GoldButton({ children, onClick, disabled, style }) {
     }}>{children}</button>
   );
 }
+
+export function ConfirmModal({ message, onConfirm, onCancel }) {
+  const G = useTheme();
+  if (!message) return null;
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 300, padding: 24,
+    }}>
+      <div style={{
+        background: G.card, border: `1px solid ${G.gold}55`,
+        borderRadius: 4, padding: '24px 20px', maxWidth: 320, width: '100%',
+      }}>
+        <div style={{ fontFamily: 'EB Garamond,serif', color: G.text, fontSize: 15, marginBottom: 20 }}>
+          {message}
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{
+            fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.15em',
+            border: `1px solid ${G.border}`, borderRadius: 3,
+            background: 'transparent', color: G.muted, padding: '8px 14px', cursor: 'pointer',
+          }}>CANCEL</button>
+          <button onClick={onConfirm} style={{
+            fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.15em',
+            border: `1px solid ${G.red}`, borderRadius: 3,
+            background: 'transparent', color: G.red, padding: '8px 14px', cursor: 'pointer',
+          }}>DELETE</button>
+        </div>
+      </div>
+    </div>
+  );
+}
