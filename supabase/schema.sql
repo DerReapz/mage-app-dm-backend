@@ -169,11 +169,39 @@ create trigger game_sessions_invite_code
   before insert on public.game_sessions
   for each row execute function public.gen_invite_code();
 
+-- 5. Vault characters: per-user character storage independent of any session.
+--    The player app upserts here on every save, and pulls on sign-in to
+--    restore characters across devices.
+create table public.vault_characters (
+  id          uuid        primary key default gen_random_uuid(),
+  player_id   uuid        not null references public.profiles(id) on delete cascade,
+  local_id    text        not null,
+  name        text        not null default 'New Mage',
+  sheet       jsonb       not null default '{}',
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (player_id, local_id)
+);
+
+create index vault_characters_player_idx on public.vault_characters(player_id);
+
+create trigger vault_characters_touch
+  before update on public.vault_characters
+  for each row execute function public.touch_updated_at();
+
+alter table public.vault_characters enable row level security;
+
+create policy vault_characters_owner_all on public.vault_characters
+  for all to authenticated
+  using      (player_id = auth.uid())
+  with check (player_id = auth.uid());
+
 -- ============================================================
 -- Realtime
 -- ============================================================
 alter publication supabase_realtime add table public.characters;
 alter publication supabase_realtime add table public.session_members;
+alter publication supabase_realtime add table public.vault_characters;
 
 -- ============================================================
 -- Join-by-invite-code RPC (see migrations/002_join_by_code.sql for rationale)
