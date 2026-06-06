@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { Card, Header, Toast } from '../components/SharedUI.jsx';
+import StoryLogPanel from '../components/StoryLogPanel.jsx';
 
 export default function SessionDetailScreen({ session, onBack, onOpenChar }) {
   const G = useTheme();
@@ -47,6 +48,8 @@ export default function SessionDetailScreen({ session, onBack, onOpenChar }) {
       />
 
       <div style={{ padding: '14px 16px 0' }}>
+        <StoryLogPanel sessionId={session.id} />
+
         {loading && <div style={{ color: G.muted, fontStyle: 'italic', textAlign: 'center', marginTop: 24 }}>Loading…</div>}
         {!loading && rows.length === 0 && (
           <div style={{ color: G.goldDim, fontStyle: 'italic', textAlign: 'center', marginTop: 24 }}>

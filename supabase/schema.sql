@@ -170,10 +170,46 @@ create trigger game_sessions_invite_code
   for each row execute function public.gen_invite_code();
 
 -- ============================================================
+-- Shared story log: one collaborative text blob per session,
+-- editable by the DM and every member. Last-write-wins.
+-- ============================================================
+create table public.story_log (
+  session_id  uuid primary key references public.game_sessions(id) on delete cascade,
+  content     text not null default '',
+  updated_at  timestamptz not null default now(),
+  updated_by  uuid references public.profiles(id) on delete set null
+);
+
+alter table public.story_log enable row level security;
+
+create trigger story_log_touch
+  before update on public.story_log
+  for each row execute function public.touch_updated_at();
+
+create policy story_dm_all on public.story_log
+  for all to authenticated
+  using      (public.is_session_dm(session_id))
+  with check (public.is_session_dm(session_id));
+
+create policy story_member_read on public.story_log
+  for select to authenticated
+  using (public.is_session_member(session_id));
+
+create policy story_member_insert on public.story_log
+  for insert to authenticated
+  with check (public.is_session_member(session_id));
+
+create policy story_member_update on public.story_log
+  for update to authenticated
+  using      (public.is_session_member(session_id))
+  with check (public.is_session_member(session_id));
+
+-- ============================================================
 -- Realtime
 -- ============================================================
 alter publication supabase_realtime add table public.characters;
 alter publication supabase_realtime add table public.session_members;
+alter publication supabase_realtime add table public.story_log;
 
 -- ============================================================
 -- Join-by-invite-code RPC (see migrations/002_join_by_code.sql for rationale)
