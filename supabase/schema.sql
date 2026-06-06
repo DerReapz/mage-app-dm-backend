@@ -205,11 +205,42 @@ create policy story_member_update on public.story_log
   with check (public.is_session_member(session_id));
 
 -- ============================================================
+-- Per-player vault: every signed-in player's characters auto-sync to
+-- this private table, keyed by (player_id, char_id) so re-syncing
+-- doesn't duplicate. Soft-deleted rows keep peer devices in sync.
+-- ============================================================
+create table public.player_characters (
+  player_id          uuid not null references public.profiles(id) on delete cascade,
+  char_id            text not null,
+  name               text not null,
+  sheet              jsonb not null,
+  client_updated_at  timestamptz not null,
+  deleted_at         timestamptz,
+  updated_at         timestamptz not null default now(),
+  created_at         timestamptz not null default now(),
+  primary key (player_id, char_id)
+);
+
+create index player_characters_player_idx on public.player_characters(player_id);
+
+alter table public.player_characters enable row level security;
+
+create trigger player_characters_touch
+  before update on public.player_characters
+  for each row execute function public.touch_updated_at();
+
+create policy vault_self_all on public.player_characters
+  for all to authenticated
+  using      (player_id = auth.uid())
+  with check (player_id = auth.uid());
+
+-- ============================================================
 -- Realtime
 -- ============================================================
 alter publication supabase_realtime add table public.characters;
 alter publication supabase_realtime add table public.session_members;
 alter publication supabase_realtime add table public.story_log;
+alter publication supabase_realtime add table public.player_characters;
 
 -- ============================================================
 -- Join-by-invite-code RPC (see migrations/002_join_by_code.sql for rationale)
