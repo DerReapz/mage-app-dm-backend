@@ -217,11 +217,14 @@ create table public.story_pages (
   position    int  not null default 0,
   created_by  uuid references public.profiles(id) on delete set null,
   updated_by  uuid references public.profiles(id) on delete set null,
+  deleted_at  timestamptz,
+  deleted_by  uuid references public.profiles(id) on delete set null,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
 
 create index story_pages_session_idx on public.story_pages(session_id);
+create index story_pages_session_deleted_idx on public.story_pages(session_id, deleted_at);
 
 alter table public.story_pages enable row level security;
 
@@ -247,9 +250,9 @@ create policy story_pages_member_update on public.story_pages
   using      (public.is_session_member(session_id))
   with check (public.is_session_member(session_id));
 
-create policy story_pages_member_delete on public.story_pages
-  for delete to authenticated
-  using (created_by = auth.uid());
+-- Permanent purge from trash is gated to the DM via story_pages_dm_all.
+-- Members soft-delete via an UPDATE that sets deleted_at, which the
+-- story_pages_member_update policy already covers.
 
 -- ============================================================
 -- Per-player vault: every signed-in player's characters auto-sync to

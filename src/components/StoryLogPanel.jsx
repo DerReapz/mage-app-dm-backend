@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { supabase } from '../lib/supabase.js';
-import { Card, Label } from './SharedUI.jsx';
+import { Card, Label, Toast } from './SharedUI.jsx';
+import TrashedChaptersModal from './TrashedChaptersModal.jsx';
 
 const byPos = (a, b) =>
   (a.position - b.position) ||
@@ -20,6 +21,11 @@ export default function StoryLogPanel({ sessionId }) {
   const [err,      setErr]      = useState('');
   const [renaming, setRenaming] = useState(false);
   const [userId,   setUserId]   = useState(null);
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashTick, setTrashTick] = useState(0);
+  const [toast,     setToast]     = useState('');
+
+  const toast2 = (m) => { setToast(m); setTimeout(() => setToast(''), 3000); };
 
   const editingRef   = useRef(false);
   const dirtyRef     = useRef(false);
@@ -87,8 +93,9 @@ export default function StoryLogPanel({ sessionId }) {
     (async () => {
       const { data, error } = await supabase
         .from('story_pages')
-        .select('id, title, content, position, created_by, created_at, updated_at')
+        .select('id, title, content, position, created_by, created_at, updated_at, deleted_at')
         .eq('session_id', sessionId)
+        .is('deleted_at', null)
         .order('position', { ascending: true })
         .order('created_at', { ascending: true });
       if (cancelled) return;
@@ -109,9 +116,16 @@ export default function StoryLogPanel({ sessionId }) {
             const goneId = old?.id;
             if (!goneId) return;
             setPages((prev) => prev.filter((p) => p.id !== goneId));
+            setTrashTick((t) => t + 1);
             return;
           }
           if (!row) return;
+          // Soft delete: row stays in the table but should leave the active list.
+          if (row.deleted_at) {
+            setPages((prev) => prev.filter((p) => p.id !== row.id));
+            setTrashTick((t) => t + 1);
+            return;
+          }
           if (row.id === activeIdRef.current) {
             const idle = !editingRef.current && Date.now() - lastEditRef.current > 1500;
             if (!idle || dirtyRef.current) {
@@ -176,12 +190,17 @@ export default function StoryLogPanel({ sessionId }) {
 
   const removeChapter = async () => {
     if (!active) return;
-    if (!window.confirm(`Delete chapter "${active.title}"? This removes it for everyone in the chronicle.`)) return;
+    if (!window.confirm(`Move "${active.title}" to Trash? You can restore it from the 🗑 Trash button.`)) return;
     const goneId = active.id;
     flushSave();
     setPages((prev) => prev.filter((p) => p.id !== goneId));
-    const { error } = await supabase.from('story_pages').delete().eq('id', goneId);
-    if (error) setErr(error.message);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from('story_pages')
+      .update({ deleted_at: new Date().toISOString(), deleted_by: user?.id || null })
+      .eq('id', goneId);
+    if (error) { setErr(error.message); return; }
+    toast2('Moved to Trash — restore from 🗑');
   };
 
   const savedLabel =
@@ -231,6 +250,15 @@ export default function StoryLogPanel({ sessionId }) {
             border: `1px dashed ${G.gold}66`, background: 'transparent', color: G.goldDim,
           }}
         >+</button>
+        <button
+          onClick={() => setShowTrash(true)}
+          title="Restore deleted chapters"
+          style={{
+            flexShrink: 0, fontFamily: 'Cinzel,serif', fontSize: 12, lineHeight: 1,
+            padding: '4px 9px', borderRadius: 3, cursor: 'pointer',
+            border: `1px solid ${G.gold}33`, background: 'transparent', color: G.goldDim,
+          }}
+        >🗑</button>
       </div>
 
       {active && (
@@ -296,6 +324,15 @@ export default function StoryLogPanel({ sessionId }) {
           >+ ADD CHAPTER</button>
         </div>
       )}
+      {showTrash && (
+        <TrashedChaptersModal
+          key={trashTick}
+          sessionId={sessionId}
+          onClose={() => setShowTrash(false)}
+          onMsg={toast2}
+        />
+      )}
+      <Toast msg={toast} />
     </Card>
   );
 }
