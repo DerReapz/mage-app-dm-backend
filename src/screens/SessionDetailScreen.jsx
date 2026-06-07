@@ -4,13 +4,28 @@ import { supabase } from '../lib/supabase.js';
 import { Card, Header, Toast } from '../components/SharedUI.jsx';
 import StoryLogPanel from '../components/StoryLogPanel.jsx';
 
+const TABS = [
+  { id: 'chars',     label: 'Characters', icon: '⬟' },
+  { id: 'chronicle', label: 'Chronicle',  icon: '✒' },
+];
+
+const LAST_TAB_PREFIX = 'mage_dm_session_tab_';
+
 export default function SessionDetailScreen({ session, onBack, onOpenChar }) {
   const G = useTheme();
   const [rows,    setRows]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast,   setToast]   = useState('');
+  const [tab,     setTab]     = useState(
+    () => localStorage.getItem(LAST_TAB_PREFIX + session.id) || 'chars',
+  );
 
   const toast2 = (m, ms = 3000) => { setToast(m); setTimeout(() => setToast(''), ms); };
+
+  const selectTab = (id) => {
+    setTab(id);
+    localStorage.setItem(LAST_TAB_PREFIX + session.id, id);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -47,9 +62,37 @@ export default function SessionDetailScreen({ session, onBack, onOpenChar }) {
         onBack={onBack}
       />
 
-      <div style={{ padding: '14px 16px 0' }}>
-        <StoryLogPanel sessionId={session.id} />
+      {/* Section tabs: Characters | Chronicle */}
+      <div style={{
+        display: 'flex', borderBottom: `1px solid ${G.goldFaint}`,
+        background: G.bg, position: 'sticky', top: 0, zIndex: 10,
+      }}>
+        {TABS.map((t) => {
+          const on = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => selectTab(t.id)}
+              style={{
+                flex: 1, background: 'transparent', border: 'none', cursor: 'pointer',
+                padding: '10px 12px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                borderBottom: `2px solid ${on ? G.gold : 'transparent'}`,
+              }}
+            >
+              <span style={{ fontSize: 14, color: on ? G.gold : G.goldDim, lineHeight: 1 }}>{t.icon}</span>
+              <span style={{
+                fontFamily: 'Cinzel,serif', fontSize: 11, letterSpacing: '.18em',
+                color: on ? G.gold : G.muted, textTransform: 'uppercase',
+              }}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
 
+      {/* Tab body. Chronicle stays mounted (display:none) so realtime subscription
+          and debounced saves survive a tab switch. */}
+      <div style={{ padding: '14px 16px 0', display: tab === 'chars' ? 'block' : 'none' }}>
         {loading && <div style={{ color: G.muted, fontStyle: 'italic', textAlign: 'center', marginTop: 24 }}>Loading…</div>}
         {!loading && rows.length === 0 && (
           <div style={{ color: G.goldDim, fontStyle: 'italic', textAlign: 'center', marginTop: 24 }}>
@@ -88,6 +131,10 @@ export default function SessionDetailScreen({ session, onBack, onOpenChar }) {
             </Card>
           );
         })}
+      </div>
+
+      <div style={{ padding: '14px 16px 0', display: tab === 'chronicle' ? 'block' : 'none' }}>
+        <StoryLogPanel sessionId={session.id} />
       </div>
 
       <Toast msg={toast} />
