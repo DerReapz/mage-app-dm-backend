@@ -205,6 +205,53 @@ create policy story_member_update on public.story_log
   with check (public.is_session_member(session_id));
 
 -- ============================================================
+-- Chronicle chapters: multiple named story pages per session. The DM
+-- and every member can read/create/edit; members may delete only their
+-- own chapters, the DM may delete any.
+-- ============================================================
+create table public.story_pages (
+  id          uuid primary key default gen_random_uuid(),
+  session_id  uuid not null references public.game_sessions(id) on delete cascade,
+  title       text not null default 'Untitled',
+  content     text not null default '',
+  position    int  not null default 0,
+  created_by  uuid references public.profiles(id) on delete set null,
+  updated_by  uuid references public.profiles(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create index story_pages_session_idx on public.story_pages(session_id);
+
+alter table public.story_pages enable row level security;
+
+create trigger story_pages_touch
+  before update on public.story_pages
+  for each row execute function public.touch_updated_at();
+
+create policy story_pages_dm_all on public.story_pages
+  for all to authenticated
+  using      (public.is_session_dm(session_id))
+  with check (public.is_session_dm(session_id));
+
+create policy story_pages_member_read on public.story_pages
+  for select to authenticated
+  using (public.is_session_member(session_id));
+
+create policy story_pages_member_insert on public.story_pages
+  for insert to authenticated
+  with check (public.is_session_member(session_id));
+
+create policy story_pages_member_update on public.story_pages
+  for update to authenticated
+  using      (public.is_session_member(session_id))
+  with check (public.is_session_member(session_id));
+
+create policy story_pages_member_delete on public.story_pages
+  for delete to authenticated
+  using (created_by = auth.uid());
+
+-- ============================================================
 -- Per-player vault: every signed-in player's characters auto-sync to
 -- this private table, keyed by (player_id, char_id) so re-syncing
 -- doesn't duplicate. Soft-deleted rows keep peer devices in sync.
@@ -240,6 +287,7 @@ create policy vault_self_all on public.player_characters
 alter publication supabase_realtime add table public.characters;
 alter publication supabase_realtime add table public.session_members;
 alter publication supabase_realtime add table public.story_log;
+alter publication supabase_realtime add table public.story_pages;
 alter publication supabase_realtime add table public.player_characters;
 
 -- ============================================================
