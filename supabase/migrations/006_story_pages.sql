@@ -68,10 +68,15 @@ exception when duplicate_object then null;
 end $$;
 
 -- Migrate existing single-blob story_log content into a default chapter so
--- chronicles written before this change keep their text.
-insert into public.story_pages (session_id, title, content, position, created_by, updated_by, created_at, updated_at)
-select sl.session_id, 'Chapter 1', sl.content, 0, gs.dm_id, sl.updated_by, sl.updated_at, sl.updated_at
-from public.story_log sl
-join public.game_sessions gs on gs.id = sl.session_id
-where coalesce(sl.content, '') <> ''
-  and not exists (select 1 from public.story_pages sp where sp.session_id = sl.session_id);
+-- chronicles written before this change keep their text. Guarded so this
+-- migration also applies cleanly on projects that never created story_log.
+do $$ begin
+  if to_regclass('public.story_log') is not null then
+    insert into public.story_pages (session_id, title, content, position, created_by, updated_by, created_at, updated_at)
+    select sl.session_id, 'Chapter 1', sl.content, 0, gs.dm_id, sl.updated_by, sl.updated_at, sl.updated_at
+    from public.story_log sl
+    join public.game_sessions gs on gs.id = sl.session_id
+    where coalesce(sl.content, '') <> ''
+      and not exists (select 1 from public.story_pages sp where sp.session_id = sl.session_id);
+  end if;
+end $$;
