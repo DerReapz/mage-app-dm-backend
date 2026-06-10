@@ -338,21 +338,45 @@ grant execute on function public.join_session_by_code(text) to authenticated;
 -- Shared battlemap per session
 -- ============================================================
 create table public.battlemaps (
-  id              uuid primary key default gen_random_uuid(),
-  session_id      uuid not null references public.game_sessions(id) on delete cascade,
-  name            text not null default 'Battlemap',
-  background_url  text,
-  width           int not null default 1024,
-  height          int not null default 768,
-  created_by      uuid references public.profiles(id) on delete set null,
-  updated_by      uuid references public.profiles(id) on delete set null,
-  created_at      timestamptz not null default now(),
-  updated_at      timestamptz not null default now()
+  id                uuid primary key default gen_random_uuid(),
+  session_id        uuid not null references public.game_sessions(id) on delete cascade,
+  name              text not null default 'Battlemap',
+  background_url    text,
+  background_locked boolean not null default false,
+  width             int not null default 1024,
+  height            int not null default 768,
+  created_by        uuid references public.profiles(id) on delete set null,
+  updated_by        uuid references public.profiles(id) on delete set null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
 );
 create unique index battlemaps_session_idx on public.battlemaps(session_id);
 alter table public.battlemaps enable row level security;
 create trigger battlemaps_touch before update on public.battlemaps
   for each row execute function public.touch_updated_at();
+
+-- Enforce DM-only background lock toggle, and DM-only changes to the image
+-- fields while the lock is on. Without this, a hand-crafted API call from a
+-- session member could bypass the disabled UI buttons.
+create or replace function public.battlemaps_enforce_bg_lock()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare is_dm boolean;
+begin
+  is_dm := public.is_session_dm(old.session_id);
+  if new.background_locked is distinct from old.background_locked and not is_dm then
+    raise exception 'battlemap background lock is DM-only';
+  end if;
+  if old.background_locked
+     and not is_dm
+     and (new.background_url is distinct from old.background_url
+       or new.width          is distinct from old.width
+       or new.height         is distinct from old.height) then
+    raise exception 'battlemap background is locked';
+  end if;
+  return new;
+end $$;
+create trigger battlemaps_bg_lock before update on public.battlemaps
+  for each row execute function public.battlemaps_enforce_bg_lock();
 create policy battlemaps_dm_all on public.battlemaps for all to authenticated
   using (public.is_session_dm(session_id)) with check (public.is_session_dm(session_id));
 create policy battlemaps_member_read on public.battlemaps for select to authenticated

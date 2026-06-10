@@ -10,7 +10,7 @@ const THICKNESSES = [2, 4, 8, 14];
 async function ensureBattlemap(sessionId) {
   const { data: existing, error: e1 } = await supabase
     .from('battlemaps')
-    .select('id, name, background_url, width, height, updated_at')
+    .select('id, name, background_url, background_locked, width, height, updated_at')
     .eq('session_id', sessionId)
     .maybeSingle();
   if (e1) throw e1;
@@ -19,7 +19,7 @@ async function ensureBattlemap(sessionId) {
   const { data, error } = await supabase
     .from('battlemaps')
     .insert({ session_id: sessionId, name: 'Battlemap', created_by: user?.id, updated_by: user?.id })
-    .select('id, name, background_url, width, height, updated_at')
+    .select('id, name, background_url, background_locked, width, height, updated_at')
     .single();
   if (error) throw error;
   return data;
@@ -39,6 +39,7 @@ export default function BattlemapPanel({ sessionId }) {
   const [busy,     setBusy]     = useState(false);
   const [toast,    setToast]    = useState('');
   const [adding,   setAdding]   = useState(false); // add-token modal
+  const [, bumpHistory] = useState(0);
 
   const wrapperRef = useRef(null);
   const canvasRef  = useRef(null);
@@ -47,7 +48,96 @@ export default function BattlemapPanel({ sessionId }) {
   const drawingId  = useRef(null);       // pointerId currently drawing
   const dragRef    = useRef(null);       // { tokenId, pointerId, dx, dy }
   const strokesRef = useRef([]);         // mirror so redraw() inside live handlers always reads fresh
+  const erasingRef = useRef(null);       // { ids: Set<string>, rows: stroke[] } while erasing
+  const undoRef    = useRef([]);         // local undo stack (entries shaped { kind, ids?, data })
+  const redoRef    = useRef([]);
+  const meRef      = useRef(null);
+  const isDMRef    = useRef(false);
   useEffect(() => { strokesRef.current = strokes; }, [strokes]);
+  useEffect(() => { meRef.current = me; }, [me]);
+  useEffect(() => { isDMRef.current = isDM; }, [isDM]);
+  // Clear undo/redo when the session changes — history is meaningful only
+  // within a single map and only for the local user's own actions.
+  useEffect(() => {
+    undoRef.current = [];
+    redoRef.current = [];
+    bumpHistory((t) => t + 1);
+  }, [sessionId]);
+
+  const pushUndo = (entry) => {
+    undoRef.current.push(entry);
+    redoRef.current = [];
+    bumpHistory((t) => t + 1);
+  };
+
+  // Insert a batch of strokes (used by undo of an erase + redo of a draw).
+  // Preserves the original created_by when present so undoing a DM erase of
+  // a player's stroke restores the original author, not the DM. RLS allows
+  // this because the DM's dm_all policy doesn't constrain created_by; for a
+  // non-DM, the only undoable strokes are their own anyway (eraser is gated
+  // to own strokes), so created_by always equals auth.uid().
+  // Returns the inserted rows so the caller can record their new ids.
+  const insertStrokeBatch = async (data) => {
+    if (!map || !meRef.current || data.length === 0) return [];
+    const rows = data.map((d) => ({
+      battlemap_id: map.id, color: d.color, thickness: d.thickness,
+      points: d.points, created_by: d.created_by || meRef.current.id,
+    }));
+    const { data: inserted, error } = await supabase
+      .from('battlemap_strokes')
+      .insert(rows)
+      .select('id, color, thickness, points, created_by, created_at');
+    if (error) throw error;
+    setStrokes((p) => {
+      const haveId = new Set(p.map((s) => s.id));
+      return [...p, ...(inserted || []).filter((s) => !haveId.has(s.id))];
+    });
+    return inserted || [];
+  };
+
+  // Apply the inverse of a history entry. Returns the new entry that should
+  // be pushed onto the opposite stack so the operation is itself reversible.
+  const applyInverse = async (entry) => {
+    if (entry.kind === 'add') {
+      const { error } = await supabase
+        .from('battlemap_strokes').delete().in('id', entry.ids);
+      if (error) throw error;
+      setStrokes((p) => p.filter((s) => !entry.ids.includes(s.id)));
+      return { kind: 'remove', data: entry.data };
+    }
+    const inserted = await insertStrokeBatch(entry.data);
+    return { kind: 'add', ids: inserted.map((r) => r.id), data: entry.data };
+  };
+
+  const doUndo = async () => {
+    if (busy) return;
+    const top = undoRef.current.pop();
+    if (!top) { bumpHistory((t) => t + 1); return; }
+    bumpHistory((t) => t + 1);
+    try {
+      const inverse = await applyInverse(top);
+      redoRef.current.push(inverse);
+    } catch (e) {
+      undoRef.current.push(top);
+      toast2(`Undo failed: ${e.message}`, 5000);
+    }
+    bumpHistory((t) => t + 1);
+  };
+
+  const doRedo = async () => {
+    if (busy) return;
+    const top = redoRef.current.pop();
+    if (!top) { bumpHistory((t) => t + 1); return; }
+    bumpHistory((t) => t + 1);
+    try {
+      const inverse = await applyInverse(top);
+      undoRef.current.push(inverse);
+    } catch (e) {
+      redoRef.current.push(top);
+      toast2(`Redo failed: ${e.message}`, 5000);
+    }
+    bumpHistory((t) => t + 1);
+  };
 
   const toast2 = (m, ms = 3000) => { setToast(m); setTimeout(() => setToast(''), ms); };
 
@@ -191,17 +281,57 @@ export default function BattlemapPanel({ sessionId }) {
     return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
   };
 
+  // True eraser: when the eraser circle intersects a stroke point we're
+  // allowed to delete (own strokes for players, anything for the DM), the
+  // stroke is removed. The radius is taken from the current thickness.
+  const eraseAtPoint = (p) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const radius = Math.max(8, thick * 1.5);
+    const rSq = radius * radius;
+    const w = canvas.width, h = canvas.height;
+    const hitIds = [];
+    const hitRows = [];
+    const dm = isDMRef.current;
+    const myId = meRef.current?.id;
+    for (const s of strokesRef.current) {
+      if (erasingRef.current.ids.has(s.id)) continue;
+      if (!dm && s.created_by !== myId) continue;
+      const pts = Array.isArray(s.points) ? s.points : [];
+      for (const pt of pts) {
+        const dx = (pt.x - p.x) * w;
+        const dy = (pt.y - p.y) * h;
+        if (dx * dx + dy * dy <= rSq) {
+          hitIds.push(s.id);
+          hitRows.push(s);
+          break;
+        }
+      }
+    }
+    if (hitIds.length === 0) return;
+    for (const id of hitIds) erasingRef.current.ids.add(id);
+    erasingRef.current.rows.push(...hitRows);
+    setStrokes((prev) => prev.filter((s) => !erasingRef.current.ids.has(s.id)));
+  };
+
   const onCanvasPointerDown = (e) => {
     if (mode === 'move') return;          // move mode reserves the canvas for tokens
     if (drawingId.current != null) return;
     e.preventDefault();
     canvasRef.current.setPointerCapture(e.pointerId);
     drawingId.current = e.pointerId;
-    liveStroke.current = { color: mode === 'erase' ? '#1a1408' : color, thickness: thick, points: [norm(e)] };
+    if (mode === 'erase') {
+      erasingRef.current = { ids: new Set(), rows: [] };
+      eraseAtPoint(norm(e));
+      return;
+    }
+    liveStroke.current = { color, thickness: thick, points: [norm(e)] };
     redraw();
   };
   const onCanvasPointerMove = (e) => {
-    if (drawingId.current !== e.pointerId || !liveStroke.current) return;
+    if (drawingId.current !== e.pointerId) return;
+    if (mode === 'erase') { if (erasingRef.current) eraseAtPoint(norm(e)); return; }
+    if (!liveStroke.current) return;
     liveStroke.current.points.push(norm(e));
     redraw();
   };
@@ -209,6 +339,31 @@ export default function BattlemapPanel({ sessionId }) {
     if (drawingId.current !== e.pointerId) return;
     drawingId.current = null;
     try { canvasRef.current.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+
+    if (mode === 'erase') {
+      const pending = erasingRef.current;
+      erasingRef.current = null;
+      if (!pending || pending.ids.size === 0) return;
+      const ids = [...pending.ids];
+      setBusy(true);
+      const { error } = await supabase.from('battlemap_strokes').delete().in('id', ids);
+      setBusy(false);
+      if (error) {
+        // Roll back: restore the strokes we optimistically removed.
+        setStrokes((prev) => {
+          const have = new Set(prev.map((s) => s.id));
+          return [...prev, ...pending.rows.filter((s) => !have.has(s.id))];
+        });
+        toast2(`Erase failed: ${error.message}`, 5000);
+        return;
+      }
+      pushUndo({
+        kind: 'remove',
+        data: pending.rows.map((r) => ({ color: r.color, thickness: r.thickness, points: r.points, created_by: r.created_by })),
+      });
+      return;
+    }
+
     const s = liveStroke.current;
     liveStroke.current = null;
     if (!s || !map || !me) return;
@@ -222,6 +377,7 @@ export default function BattlemapPanel({ sessionId }) {
     setBusy(false);
     if (error) { toast2(`Draw failed: ${error.message}`, 5000); redraw(); return; }
     setStrokes((p) => p.some((x) => x.id === data.id) ? p : [...p, data]);
+    pushUndo({ kind: 'add', ids: [data.id], data: [{ color: data.color, thickness: data.thickness, points: data.points }] });
   };
 
   const clearMyStrokes = async () => {
@@ -267,11 +423,61 @@ export default function BattlemapPanel({ sessionId }) {
       const { data, error } = await supabase.from('battlemaps')
         .update({ background_url: pub.publicUrl, width: dims.w, height: dims.h, updated_by: user?.id })
         .eq('id', map.id)
-        .select('id, name, background_url, width, height, updated_at').single();
+        .select('id, name, background_url, background_locked, width, height, updated_at').single();
       if (error) throw error;
       setMap(data);
       toast2('Background uploaded ✓');
     } catch (e) { toast2(`Upload failed: ${e.message}`, 6000); }
+    finally { setBusy(false); }
+  };
+
+  const deleteBackground = async () => {
+    if (!map?.background_url) return;
+    if (!window.confirm('Remove the background image? Tokens and strokes stay.')) return;
+    setBusy(true);
+    try {
+      const url = map.background_url;
+      const match = url.match(/\/battlemaps\/(.+?)(\?|$)/);
+      const path = match ? decodeURIComponent(match[1]) : null;
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from('battlemaps')
+        .update({ background_url: null, updated_by: user?.id })
+        .eq('id', map.id)
+        .select('id, name, background_url, background_locked, width, height, updated_at')
+        .single();
+      if (error) throw error;
+      setMap(data);
+      if (path) {
+        // Best-effort cleanup of the object. RLS may reject for non-owners;
+        // not surfacing the error since the visible state is what matters.
+        await supabase.storage.from('battlemaps').remove([path]).catch(() => {});
+      }
+      toast2('Background removed ✓');
+    } catch (e) { toast2(`Remove failed: ${e.message}`, 6000); }
+    finally { setBusy(false); }
+  };
+
+  // DM-only: toggle whether the background image is locked. While locked,
+  // session members can't upload or remove the background image (the trigger
+  // in the database enforces the same rule, so the lock can't be bypassed by
+  // a hand-crafted API call).
+  const toggleBackgroundLock = async () => {
+    if (!map || !isDM) return;
+    const next = !map.background_locked;
+    setBusy(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from('battlemaps')
+        .update({ background_locked: next, updated_by: user?.id })
+        .eq('id', map.id)
+        .select('id, name, background_url, background_locked, width, height, updated_at')
+        .single();
+      if (error) throw error;
+      setMap(data);
+      toast2(next ? 'Background locked' : 'Background unlocked');
+    } catch (e) { toast2(`Lock failed: ${e.message}`, 6000); }
     finally { setBusy(false); }
   };
 
@@ -374,15 +580,77 @@ export default function BattlemapPanel({ sessionId }) {
           ))}
         </div>
 
-        <label style={{
-          fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
-          border: `1px solid ${G.gold}66`, borderRadius: 3, color: G.goldDim,
-          padding: '5px 10px', cursor: 'pointer', background: 'transparent',
-        }}>
-          ↑ BACKGROUND
-          <input type="file" accept="image/*" style={{ display: 'none' }}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadBackground(f); e.target.value = ''; }} />
-        </label>
+        <button onClick={doUndo} disabled={busy || undoRef.current.length === 0} title="Undo your last action"
+          style={{
+            fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
+            border: `1px solid ${G.gold}66`, borderRadius: 3, background: 'transparent',
+            color: G.goldDim, padding: '5px 10px',
+            opacity: undoRef.current.length === 0 ? 0.4 : 1,
+            cursor: undoRef.current.length === 0 ? 'default' : 'pointer',
+          }}>↶ UNDO</button>
+        <button onClick={doRedo} disabled={busy || redoRef.current.length === 0} title="Redo your last undone action"
+          style={{
+            fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
+            border: `1px solid ${G.gold}66`, borderRadius: 3, background: 'transparent',
+            color: G.goldDim, padding: '5px 10px',
+            opacity: redoRef.current.length === 0 ? 0.4 : 1,
+            cursor: redoRef.current.length === 0 ? 'default' : 'pointer',
+          }}>↷ REDO</button>
+
+        {(() => {
+          const locked   = !!map?.background_locked;
+          const bgDisabled = locked && !isDM;
+          const lockTitle = locked && !isDM ? 'Background locked by DM' : 'Upload a background image';
+          return (
+            <label title={lockTitle} style={{
+              fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
+              border: `1px solid ${G.gold}66`, borderRadius: 3, color: G.goldDim,
+              padding: '5px 10px', cursor: bgDisabled ? 'not-allowed' : 'pointer',
+              background: 'transparent', opacity: bgDisabled ? 0.5 : 1,
+            }}>
+              ↑ BACKGROUND
+              <input type="file" accept="image/*" style={{ display: 'none' }} disabled={bgDisabled}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadBackground(f); e.target.value = ''; }} />
+            </label>
+          );
+        })()}
+
+        {map?.background_url && (() => {
+          const locked   = !!map?.background_locked;
+          const disabled = locked && !isDM;
+          return (
+            <button onClick={deleteBackground} disabled={disabled}
+              title={disabled ? 'Background locked by DM' : 'Remove the background image'}
+              style={{
+                fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
+                border: `1px solid ${G.red}66`, borderRadius: 3, background: 'transparent',
+                color: G.red, padding: '5px 10px',
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                opacity: disabled ? 0.4 : 1,
+              }}>✕ BG</button>
+          );
+        })()}
+
+        {isDM && (
+          <button onClick={toggleBackgroundLock} disabled={busy}
+            title={map?.background_locked ? 'Unlock the background' : 'Lock the background so players cannot change it'}
+            style={{
+              fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
+              border: `1px solid ${map?.background_locked ? G.gold : G.border}`, borderRadius: 3,
+              background: map?.background_locked ? `${G.gold}1e` : 'transparent',
+              color: map?.background_locked ? G.gold : G.goldDim,
+              padding: '5px 10px', cursor: 'pointer',
+            }}>
+            {map?.background_locked ? '🔒 LOCKED' : '🔓 LOCK BG'}
+          </button>
+        )}
+        {!isDM && map?.background_locked && (
+          <span title="The DM has locked this background image"
+            style={{
+              fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
+              color: G.goldDim, padding: '5px 6px',
+            }}>🔒 LOCKED</span>
+        )}
 
         <button onClick={() => setAdding(true)} disabled={!me || !map} style={{
           fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
@@ -449,7 +717,9 @@ export default function BattlemapPanel({ sessionId }) {
 
       <div style={{ fontFamily: 'Cinzel,serif', fontSize: 9, letterSpacing: '.12em', color: G.muted, marginTop: 6 }}>
         {busy ? 'Saving…' : (mode === 'move' ? 'Drag tokens. Double-click yours to remove.' :
-          mode === 'erase' ? 'Erase strokes by drawing over them.' :
+          mode === 'erase' ? (isDM
+            ? 'Drag to erase any stroke. Use thickness for the eraser size.'
+            : 'Drag to erase strokes you drew. Use thickness for the eraser size.') :
           'Draw on the map. Tokens stay on top.')}
       </div>
 
