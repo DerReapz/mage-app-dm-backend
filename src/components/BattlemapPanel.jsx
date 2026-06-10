@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { Card, Label, Toast } from './SharedUI.jsx';
+import BattlemapLibraryModal from './BattlemapLibraryModal.jsx';
 
 const COLORS = ['#c8a84b', '#c03030', '#5cad8f', '#7ab8c8', '#c4a0e8', '#e8d9b0', '#080808'];
 const THICKNESSES = [2, 4, 8, 14];
@@ -39,6 +40,7 @@ export default function BattlemapPanel({ sessionId }) {
   const [busy,     setBusy]     = useState(false);
   const [toast,    setToast]    = useState('');
   const [adding,   setAdding]   = useState(false); // add-token modal
+  const [library,  setLibrary]  = useState(false); // library modal
   const [, bumpHistory] = useState(0);
 
   const wrapperRef = useRef(null);
@@ -458,6 +460,25 @@ export default function BattlemapPanel({ sessionId }) {
     finally { setBusy(false); }
   };
 
+  // Swap to one of the library maps. The URL already exists in storage,
+  // so we just point the battlemap row at it and update the native
+  // dimensions so the canvas aspect is correct.
+  const useLibraryBackground = async (entry) => {
+    if (!map) return;
+    setBusy(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from('battlemaps')
+        .update({ background_url: entry.url, width: entry.width, height: entry.height, updated_by: user?.id })
+        .eq('id', map.id)
+        .select('id, name, background_url, background_locked, width, height, updated_at')
+        .single();
+      if (error) throw error;
+      setMap(data);
+    } finally { setBusy(false); }
+  };
+
   // DM-only: toggle whether the background image is locked. While locked,
   // session members can't upload or remove the background image (the trigger
   // in the database enforces the same rule, so the lock can't be bypassed by
@@ -632,6 +653,17 @@ export default function BattlemapPanel({ sessionId }) {
         })()}
 
         {isDM && (
+          <button onClick={() => setLibrary(true)} disabled={busy || !map}
+            title="Open the battlemap library — stored maps you can toggle between"
+            style={{
+              fontFamily: 'Cinzel,serif', fontSize: 10, letterSpacing: '.12em',
+              border: `1px solid ${G.gold}66`, borderRadius: 3, background: 'transparent',
+              color: G.goldDim, padding: '5px 10px',
+              cursor: !map ? 'default' : 'pointer', opacity: !map ? 0.5 : 1,
+            }}>📚 LIBRARY</button>
+        )}
+
+        {isDM && (
           <button onClick={toggleBackgroundLock} disabled={busy}
             title={map?.background_locked ? 'Unlock the background' : 'Lock the background so players cannot change it'}
             style={{
@@ -743,6 +775,16 @@ export default function BattlemapPanel({ sessionId }) {
             setAdding(false);
             if (error) toast2(`Add failed: ${error.message}`, 6000);
           }}
+        />
+      )}
+
+      {library && map && (
+        <BattlemapLibraryModal
+          sessionId={sessionId}
+          currentUrl={map.background_url || null}
+          onClose={() => setLibrary(false)}
+          onUse={useLibraryBackground}
+          onMsg={(m) => toast2(m, 3000)}
         />
       )}
 

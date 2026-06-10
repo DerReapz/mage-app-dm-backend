@@ -452,3 +452,22 @@ create policy "battlemaps delete" on storage.objects
   for delete to authenticated using (bucket_id = 'battlemaps');
 create policy "battlemaps read" on storage.objects
   for select to public using (bucket_id = 'battlemaps');
+
+-- Battlemap image library: per-session, DM-only persistent collection of
+-- map images the DM can toggle between as the active background.
+create table public.battlemap_library (
+  id          uuid primary key default gen_random_uuid(),
+  session_id  uuid not null references public.game_sessions(id) on delete cascade,
+  name        text not null default 'Untitled map',
+  url         text not null,
+  width       int  not null default 1024,
+  height      int  not null default 768,
+  created_by  uuid references public.profiles(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+create index battlemap_library_session_idx on public.battlemap_library(session_id, created_at);
+alter table public.battlemap_library enable row level security;
+create policy battlemap_library_dm_all on public.battlemap_library for all to authenticated
+  using (public.is_session_dm(session_id))
+  with check (public.is_session_dm(session_id));
+alter publication supabase_realtime add table public.battlemap_library;
