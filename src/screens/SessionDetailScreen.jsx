@@ -3,10 +3,12 @@ import { useTheme } from '../context/ThemeContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { Card, Header, Toast } from '../components/SharedUI.jsx';
 import StoryLogPanel from '../components/StoryLogPanel.jsx';
+import BattlemapPanel from '../components/BattlemapPanel.jsx';
 
 const TABS = [
   { id: 'chars',     label: 'Characters', icon: '⬟' },
   { id: 'chronicle', label: 'Chronicle',  icon: '✒' },
+  { id: 'map',       label: 'Map',        icon: '⬢' },
 ];
 
 const LAST_TAB_PREFIX = 'mage_dm_session_tab_';
@@ -135,6 +137,10 @@ export default function SessionDetailScreen({ session, onBack, onOpenChar }) {
 
       <div style={{ padding: '14px 16px 0', display: tab === 'chronicle' ? 'block' : 'none' }}>
         <StoryLogPanel sessionId={session.id} />
+      </div>
+
+      <div style={{ padding: '14px 16px 0', display: tab === 'map' ? 'block' : 'none' }}>
+        <BattlemapPanel sessionId={session.id} />
       </div>
 
       <Toast msg={toast} />

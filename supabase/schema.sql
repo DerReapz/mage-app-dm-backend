@@ -333,3 +333,98 @@ $$;
 
 revoke all on function public.join_session_by_code(text) from public;
 grant execute on function public.join_session_by_code(text) to authenticated;
+
+-- ============================================================
+-- Shared battlemap per session
+-- ============================================================
+create table public.battlemaps (
+  id              uuid primary key default gen_random_uuid(),
+  session_id      uuid not null references public.game_sessions(id) on delete cascade,
+  name            text not null default 'Battlemap',
+  background_url  text,
+  width           int not null default 1024,
+  height          int not null default 768,
+  created_by      uuid references public.profiles(id) on delete set null,
+  updated_by      uuid references public.profiles(id) on delete set null,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create unique index battlemaps_session_idx on public.battlemaps(session_id);
+alter table public.battlemaps enable row level security;
+create trigger battlemaps_touch before update on public.battlemaps
+  for each row execute function public.touch_updated_at();
+create policy battlemaps_dm_all on public.battlemaps for all to authenticated
+  using (public.is_session_dm(session_id)) with check (public.is_session_dm(session_id));
+create policy battlemaps_member_read on public.battlemaps for select to authenticated
+  using (public.is_session_member(session_id));
+create policy battlemaps_member_ins on public.battlemaps for insert to authenticated
+  with check (public.is_session_member(session_id));
+create policy battlemaps_member_upd on public.battlemaps for update to authenticated
+  using (public.is_session_member(session_id)) with check (public.is_session_member(session_id));
+
+create table public.battlemap_strokes (
+  id            uuid primary key default gen_random_uuid(),
+  battlemap_id  uuid not null references public.battlemaps(id) on delete cascade,
+  color         text not null,
+  thickness     real not null,
+  points        jsonb not null,
+  created_by    uuid references public.profiles(id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create index battlemap_strokes_map_idx on public.battlemap_strokes(battlemap_id, created_at);
+alter table public.battlemap_strokes enable row level security;
+create policy bm_strokes_dm_all on public.battlemap_strokes for all to authenticated
+  using (exists (select 1 from public.battlemaps b where b.id = battlemap_id and public.is_session_dm(b.session_id)))
+  with check (exists (select 1 from public.battlemaps b where b.id = battlemap_id and public.is_session_dm(b.session_id)));
+create policy bm_strokes_member_read on public.battlemap_strokes for select to authenticated
+  using (exists (select 1 from public.battlemaps b where b.id = battlemap_id and public.is_session_member(b.session_id)));
+create policy bm_strokes_member_write on public.battlemap_strokes for insert to authenticated
+  with check (exists (select 1 from public.battlemaps b where b.id = battlemap_id and public.is_session_member(b.session_id))
+              and created_by = auth.uid());
+create policy bm_strokes_self_delete on public.battlemap_strokes for delete to authenticated
+  using (created_by = auth.uid());
+
+create table public.battlemap_tokens (
+  id            uuid primary key default gen_random_uuid(),
+  battlemap_id  uuid not null references public.battlemaps(id) on delete cascade,
+  player_id     uuid references public.profiles(id) on delete set null,
+  label         text not null default '?',
+  color         text not null default '#c8a84b',
+  x             real not null default 0.5,
+  y             real not null default 0.5,
+  created_by    uuid references public.profiles(id) on delete set null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create index battlemap_tokens_map_idx on public.battlemap_tokens(battlemap_id);
+alter table public.battlemap_tokens enable row level security;
+create trigger battlemap_tokens_touch before update on public.battlemap_tokens
+  for each row execute function public.touch_updated_at();
+create policy bm_tokens_dm_all on public.battlemap_tokens for all to authenticated
+  using (exists (select 1 from public.battlemaps b where b.id = battlemap_id and public.is_session_dm(b.session_id)))
+  with check (exists (select 1 from public.battlemaps b where b.id = battlemap_id and public.is_session_dm(b.session_id)));
+create policy bm_tokens_member_read on public.battlemap_tokens for select to authenticated
+  using (exists (select 1 from public.battlemaps b where b.id = battlemap_id and public.is_session_member(b.session_id)));
+create policy bm_tokens_member_create on public.battlemap_tokens for insert to authenticated
+  with check (player_id = auth.uid()
+              and exists (select 1 from public.battlemaps b where b.id = battlemap_id and public.is_session_member(b.session_id)));
+create policy bm_tokens_self_update on public.battlemap_tokens for update to authenticated
+  using (player_id = auth.uid()) with check (player_id = auth.uid());
+create policy bm_tokens_self_delete on public.battlemap_tokens for delete to authenticated
+  using (player_id = auth.uid());
+
+alter publication supabase_realtime add table public.battlemaps;
+alter publication supabase_realtime add table public.battlemap_strokes;
+alter publication supabase_realtime add table public.battlemap_tokens;
+
+-- Public bucket for battlemap background images.
+insert into storage.buckets (id, name, public) values ('battlemaps', 'battlemaps', true)
+  on conflict (id) do nothing;
+create policy "battlemaps insert" on storage.objects
+  for insert to authenticated with check (bucket_id = 'battlemaps');
+create policy "battlemaps update" on storage.objects
+  for update to authenticated using (bucket_id = 'battlemaps');
+create policy "battlemaps delete" on storage.objects
+  for delete to authenticated using (bucket_id = 'battlemaps');
+create policy "battlemaps read" on storage.objects
+  for select to public using (bucket_id = 'battlemaps');
