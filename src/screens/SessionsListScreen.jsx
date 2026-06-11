@@ -16,9 +16,13 @@ export default function SessionsListScreen({ user, onOpenSession, onSignOut }) {
 
   const load = async () => {
     setLoading(true);
+    // Only chronicles where this user is the DM — sessions joined as a player
+    // are managed in the player app and would silently fail to delete here
+    // because of RLS, which previously presented as "Delete doesn't work".
     const { data, error } = await supabase
       .from('game_sessions')
-      .select('id, name, invite_code, created_at')
+      .select('id, name, invite_code, created_at, deletion_locked')
+      .eq('dm_id', user.id)
       .order('created_at', { ascending: false });
     if (error) toast2(error.message);
     setSessions(data || []);
@@ -61,14 +65,38 @@ export default function SessionsListScreen({ user, onOpenSession, onSignOut }) {
     toast2('Backup downloaded');
   };
 
+  const toggleDeletionLock = async (s) => {
+    const next = !s.deletion_locked;
+    const { data, error } = await supabase
+      .from('game_sessions')
+      .update({ deletion_locked: next })
+      .eq('id', s.id)
+      .select('id, deletion_locked');
+    if (error) { toast2(error.message); return; }
+    if (!data || data.length === 0) { toast2('Lock change failed — you may not own this campaign'); return; }
+    setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, deletion_locked: next } : x)));
+    toast2(next ? `"${s.name}" locked` : `"${s.name}" unlocked`);
+  };
+
   const doDelete = async () => {
     const s = confirmDelete;
     setConfirmDelete(null);
-    const { error } = await supabase
+    if (!s) return;
+    if (s.deletion_locked) { toast2('Unlock the chronicle first'); return; }
+    // .select('id') so we know whether RLS or the server-side lock trigger
+    // silently rejected the delete. Without this the original code toasted
+    // success even on a zero-rows no-op and the row immediately reappeared
+    // on load().
+    const { data, error } = await supabase
       .from('game_sessions')
       .delete()
-      .eq('id', s.id);
+      .eq('id', s.id)
+      .select('id');
     if (error) { toast2(error.message); return; }
+    if (!data || data.length === 0) {
+      toast2('Delete failed — campaign is locked or you do not own it', 5000);
+      return;
+    }
     toast2(`"${s.name}" deleted`);
     load();
   };
@@ -139,11 +167,29 @@ export default function SessionsListScreen({ user, onOpenSession, onSignOut }) {
                 border: `1px solid ${G.gold}55`, borderRadius: 3,
                 background: 'transparent', color: G.goldDim, padding: '5px 10px', cursor: 'pointer',
               }}>BACKUP</button>
-              <button onClick={() => setConfirmDelete(s)} style={{
-                fontFamily: 'Cinzel,serif', fontSize: 9, letterSpacing: '.15em',
-                border: `1px solid ${G.red}88`, borderRadius: 3,
-                background: 'transparent', color: G.red, padding: '5px 10px', cursor: 'pointer',
-              }}>DELETE</button>
+              <button
+                onClick={() => toggleDeletionLock(s)}
+                title={s.deletion_locked ? 'Unlock to allow deletion' : 'Lock to prevent accidental deletion'}
+                style={{
+                  fontFamily: 'Cinzel,serif', fontSize: 9, letterSpacing: '.15em',
+                  border: `1px solid ${s.deletion_locked ? G.gold : `${G.gold}55`}`, borderRadius: 3,
+                  background: s.deletion_locked ? `${G.gold}1e` : 'transparent',
+                  color: s.deletion_locked ? G.gold : G.goldDim,
+                  padding: '5px 10px', cursor: 'pointer',
+                }}
+              >{s.deletion_locked ? '🔒 LOCKED' : '🔓 LOCK'}</button>
+              <button
+                onClick={() => setConfirmDelete(s)}
+                disabled={s.deletion_locked}
+                title={s.deletion_locked ? 'Unlock the chronicle to delete it' : undefined}
+                style={{
+                  fontFamily: 'Cinzel,serif', fontSize: 9, letterSpacing: '.15em',
+                  border: `1px solid ${G.red}88`, borderRadius: 3,
+                  background: 'transparent', color: G.red, padding: '5px 10px',
+                  cursor: s.deletion_locked ? 'default' : 'pointer',
+                  opacity: s.deletion_locked ? 0.35 : 1,
+                }}
+              >DELETE</button>
             </div>
           </Card>
         ))}
