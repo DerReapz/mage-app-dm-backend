@@ -17,6 +17,7 @@ create table public.game_sessions (
   dm_id uuid not null references public.profiles(id) on delete cascade,
   name text not null,
   invite_code text not null unique,
+  deletion_locked boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -168,6 +169,25 @@ end $$;
 create trigger game_sessions_invite_code
   before insert on public.game_sessions
   for each row execute function public.gen_invite_code();
+
+-- ============================================================
+-- Deletion lock: a DM can lock a chronicle so DELETE is refused
+-- server-side. Toggle is DM-only thanks to the sessions_dm_all RLS
+-- restricting UPDATE to dm_id = auth.uid().
+-- ============================================================
+create or replace function public.game_sessions_enforce_deletion_lock()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if old.deletion_locked then
+    raise exception 'chronicle is locked — unlock before deleting'
+      using errcode = 'P0001';
+  end if;
+  return old;
+end $$;
+
+create trigger game_sessions_deletion_lock
+  before delete on public.game_sessions
+  for each row execute function public.game_sessions_enforce_deletion_lock();
 
 -- ============================================================
 -- Shared story log: one collaborative text blob per session,
