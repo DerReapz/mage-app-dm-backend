@@ -44,6 +44,14 @@ jobs:
             sed -i 's/JavaVersion\.VERSION_21/JavaVersion.VERSION_17/g' android/app/build.gradle || true
           fi
 
+      - name: Install WebView crash-recovery MainActivity
+        run: |
+          MAIN=$(find android/app/src/main/java -name MainActivity.java | head -1)
+          PKG=$(sed -n 's/^package \(.*\);/\1/p' "$MAIN")
+          sed "s/__PACKAGE__/$PKG/" native-android/MainActivity.java > "$MAIN"
+          echo "Installed crash-recovery MainActivity at $MAIN (package $PKG)"
+          cat "$MAIN"
+
       - name: Build debug APK
         working-directory: android
         run: |
